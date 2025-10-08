@@ -1,0 +1,460 @@
+import os
+import pyttsx3
+import speech_recognition as sr
+import requests
+import datetime
+import pywhatkit
+import wikipedia
+import webbrowser
+import numpy as np
+import pyaudio
+import tkinter as tk
+import threading
+import json
+import time
+import pyautogui
+import pyjokes
+import psutil
+import subprocess
+from Dictapp import openappweb, closeappweb
+import google.generativeai as genai
+
+# ------------------ Voice Engine Setup ------------------
+engine = pyttsx3.init("sapi5")
+voices = engine.getProperty("voices")
+engine.setProperty("voice", voices[0].id)
+engine.setProperty("rate", 170)
+
+def speak(audio):
+    engine.say(audio)
+    engine.runAndWait()
+
+# ------------------ Siri-Style Waveform Animation ------------------
+class SiriWaveAnimation:
+    def __init__(self):
+        self.root = tk.Tk()
+
+        # ✅ First initialize root, then get screen dimensions
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+
+        # Window size and position (bottom right corner)
+        self.size = 250
+        x = screen_width - self.size - 20
+        y = screen_height - self.size - 60
+
+        # Configure transparent circular window
+        self.root.overrideredirect(True)
+        self.root.attributes("-topmost", True)
+        self.root.configure(bg="magenta")
+        self.root.geometry(f"{self.size}x{self.size}+{x}+{y}")
+        self.root.wm_attributes("-transparentcolor", "magenta")
+
+        self.canvas = tk.Canvas(self.root, bg="magenta", width=self.size, height=self.size, highlightthickness=0)
+        self.canvas.pack()
+
+        # Create circular canvas background (transparent visual mask)
+        self.canvas.create_oval(0, 0, self.size, self.size, fill="magenta", outline="magenta")
+
+        # PyAudio setup
+        self.running = True
+        self.chunk = 1024
+        self.rate = 44100
+        self.p = pyaudio.PyAudio()
+        self.stream = self.p.open(format=pyaudio.paInt16,
+                                  channels=1,
+                                  rate=self.rate,
+                                  input=True,
+                                  frames_per_buffer=self.chunk)
+
+        self.root.after(10, self.draw_wave)
+
+    def draw_wave(self):
+        if not self.running:
+            return
+
+        try:
+            data = np.frombuffer(self.stream.read(self.chunk, exception_on_overflow=False), dtype=np.int16)
+            volume = np.linalg.norm(data)
+
+            self.canvas.delete("wave")
+            for angle in range(0, 360, 15):
+                radians = np.radians(angle)
+                radius = 80 + (np.sin(time.time() * 5 + angle) * (volume / 150))
+                x = self.size / 2 + radius * np.cos(radians)
+                y = self.size / 2 + radius * np.sin(radians)
+                self.canvas.create_oval(x, y, x + 10, y + 10, fill="#00ffff", outline="", tags="wave")
+
+        except Exception as e:
+            print("Wave draw error:", e)
+
+        self.root.after(10, self.draw_wave)
+
+    def stop(self):
+        self.running = False
+        try:
+            self.stream.stop_stream()
+            self.stream.close()
+            self.p.terminate()
+            self.root.destroy()
+        except:
+            pass
+
+# Global tracker to prevent overlap
+current_animation = None
+
+def takeCommandWithAnimation():
+    global current_animation
+
+    # ❌ Stop old animation if still running
+    if current_animation is not None:
+        try:
+            current_animation.stop()
+        except:
+            pass
+        current_animation = None
+
+    result_holder = {"query": None}
+
+    def store_result(query):
+        result_holder["query"] = query
+        animation.root.after(100, animation.stop)
+
+    animation = SiriWaveAnimation()
+    current_animation = animation  # Save this instance
+
+    threading.Thread(target=recognize_command, args=(store_result,), daemon=True).start()
+    animation.root.mainloop()
+    return result_holder["query"]
+# ------------------ Speech Recognition ------------------
+def recognize_command(callback):
+    r = sr.Recognizer()
+    with sr.Microphone() as source:
+        print("🎤 Listening...")
+        r.pause_threshold = 1
+        r.energy_threshold = 300
+        audio = r.listen(source, 0, 4)
+
+    try:
+        print("🤖 Understanding...")
+        query = r.recognize_google(audio, language='en-in')
+        print(f"🗣️ You Said: {query}\n")
+        callback(query.lower())
+    except Exception:
+        print("😕 Didn't catch that.")
+        callback("None")
+
+def takeCommandWithAnimation():
+    result_holder = {"query": None}
+
+    def store_result(query):
+        result_holder["query"] = query
+        animation.root.after(100, animation.stop)
+
+    animation = SiriWaveAnimation()
+    threading.Thread(target=recognize_command, args=(store_result,), daemon=True).start()
+    animation.root.mainloop()
+    return result_holder["query"]
+
+# ------------------ Feature Functions ------------------
+def get_temperature(city):
+    api_key = "1b1ce4ab59f36233af715f7b25216b6d"
+    url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
+    try:
+        r = requests.get(url)
+        data = r.json()
+        if data.get("cod") == 200:
+            return data["main"]["temp"]
+        else:
+            return None
+    except Exception as e:
+        print("⚠️ Weather error:", e)
+        return None
+
+def play_on_youtube(query):
+    song = query.replace("play", "").strip()
+    speak(f"Playing {song} on YouTube")
+    pywhatkit.playonyt(song)
+
+def searchGoogle(query):
+    query = query.replace("google", "").replace("search", "")
+    speak("This is what I found on Google.")
+    pywhatkit.search(query)
+    try:
+        result = wikipedia.summary(query, 1)
+        speak(result)
+    except:
+        speak("No speakable output available.")
+
+def searchYoutube(query):
+    speak("Searching on YouTube...")
+    query = query.replace("youtube", "").replace("search", "")
+    try:
+        pywhatkit.playonyt(query)
+        speak("Playing now.")
+    except:
+        speak("Sorry, I couldn't play the video.")
+
+def searchWikipedia(query):
+    speak("Searching from Wikipedia...")
+    query = query.replace("wikipedia", "")
+    try:
+        results = wikipedia.summary(query, sentences=2)
+        speak("According to Wikipedia...")
+        speak(results)
+    except:
+        speak("Sorry, I couldn't find anything.")
+
+def tell_joke():
+    joke = pyjokes.get_joke()
+    speak(joke)
+
+def system_status(query):
+    if "battery" in query:
+        battery = psutil.sensors_battery()
+        if battery:
+            percent = battery.percent
+            plugged = "plugged in" if battery.power_plugged else "not plugged in"
+            speak(f"Battery is at {percent} percent and is {plugged}.")
+    elif "cpu" in query:
+        cpu = psutil.cpu_percent(interval=1)
+        speak(f"CPU usage is {cpu} percent.")
+    elif "ram" in query:
+        memory = psutil.virtual_memory()
+        speak(f"RAM usage is at {memory.percent} percent.")
+    else:
+        speak("Please specify battery, CPU, or RAM.")
+
+def take_screenshot():
+    speak("Taking screenshot in 3 seconds.")
+    time.sleep(3)
+    ss = pyautogui.screenshot()
+    ss.save("screenshot.png")
+    speak("Screenshot saved as screenshot.png.")
+
+def remember_that(text):
+    with open("memory.json", "w") as file:
+        json.dump({"note": text}, file)
+    speak("Okay, I will remember that.")
+
+def recall_memory():
+    try:
+        with open("memory.json", "r") as file:
+            data = json.load(file)
+            speak(f"You told me to remember: {data['note']}")
+    except:
+        speak("I don't remember anything yet.")
+
+def set_alarm(alarm_time):
+    speak(f"Setting alarm for {alarm_time}")
+    while True:
+        current_time = datetime.datetime.now().strftime("%H:%M")
+        if current_time == alarm_time:
+            speak("Time to wake up!")
+            break
+        time.sleep(30)
+
+def do_calculation(query):
+    try:
+        expression = query.replace("calculate", "").strip()
+        result = eval(expression)
+        speak(f"The answer is {result}")
+    except Exception as e:
+        speak("Sorry, I couldn't calculate that.")
+        print("Calculation error:", e)
+
+def open_website_from_name(query):
+    try:
+        words = query.split()
+        for word in words:
+            if ".com" in word or ".in" in word or ".org" in word:
+                webbrowser.open(f"https://{word}")
+                speak(f"Opening {word}")
+                return
+        website = query.replace("open", "").replace("website", "").strip().replace(" ", "")
+        webbrowser.open(f"https://www.{website}.com")
+        speak(f"Opening {website}.com")
+    except:
+        speak("Sorry, I couldn't open that website.")
+
+def open_bluetooth_settings():
+    try:
+        subprocess.run("start ms-settings:bluetooth", shell=True)
+        speak("Opening Bluetooth settings.")
+    except:
+        speak("Couldn't open Bluetooth settings.")
+
+def close_settings():
+    try:
+        os.system("taskkill /f /im SystemSettings.exe")
+        speak("Closed Settings.")
+    except:
+        speak("Couldn't close settings.")
+
+def open_wifi_settings():
+    try:
+        subprocess.run("start ms-settings:network-wifi", shell=True)
+        speak("Opening WiFi settings.")
+    except:
+        speak("Couldn't open WiFi settings.")
+
+# ------------------ Assistant Core ------------------
+if __name__ == "__main__":
+    hour = datetime.datetime.now().hour
+    if 5 <= hour < 12:
+        speak("Good morning sir. How can I assist you?")
+    elif 12 <= hour < 18:
+        speak("Good afternoon sir. How can I assist you?")
+    else:
+        speak("Good evening sir. How can I assist you?")
+
+    while True:
+        query = takeCommandWithAnimation()
+        if query == "None":
+            continue
+
+        if "wake up" in query:
+            speak("I am here, ready to help.")
+
+        elif "chat box" in query:
+            speak("Opening Jarvis Chatbox.")
+            webbrowser.open("http://127.0.0.1:5000/login")
+
+        elif "play" in query:
+            play_on_youtube(query)
+
+        elif "time" in query:
+            now = datetime.datetime.now()
+            speak(f"The time is {now.strftime('%I:%M %p')}")
+
+        elif "date" in query:
+            speak(f"Today's date is {datetime.date.today().strftime('%B %d, %Y')}")
+
+        elif "day" in query:
+            speak(f"Today is {datetime.datetime.now().strftime('%A')}")
+
+        elif "temperature" in query or "weather" in query:
+            for city in ["delhi", "asansol", "kolkata", "chennai", "mumbai"]:
+                if city in query:
+                    temp = get_temperature(city)
+                    if temp:
+                        speak(f"The temperature in {city.title()} is {temp}°C")
+                    else:
+                        speak("Couldn't fetch the temperature.")
+                    break
+            else:
+                speak("I can check weather for Delhi, Asansol, Kolkata, Chennai, and Mumbai only.")
+
+        elif "open" in query and ("website" in query or ".com" in query):
+            open_website_from_name(query)
+
+        elif "open" in query:
+            openappweb(query)
+
+        elif "close" in query:
+            closeappweb(query)
+
+        elif "google" in query:
+            searchGoogle(query)
+
+        elif "youtube" in query:
+            searchYoutube(query)
+
+        elif "wikipedia" in query:
+            searchWikipedia(query)
+
+        elif "joke" in query:
+            tell_joke()
+
+        elif "system status" in query or "battery" in query or "cpu" in query or "ram" in query:
+            system_status(query)
+
+        elif "screenshot" in query:
+            take_screenshot()
+
+        elif "remember that" in query:
+            remember_this = query.replace("remember that", "")
+            remember_that(remember_this.strip())
+
+        elif "recall" in query or "do you remember" in query:
+            recall_memory()
+
+        elif "set alarm" in query:
+            import re
+            match = re.search(r"(\d{2}:\d{2})", query)
+            if match:
+                threading.Thread(target=set_alarm, args=(match.group(1),), daemon=True).start()
+            else:
+                speak("Please say the time in HH:MM format.")
+
+        elif "calculate" in query or "what is" in query or "how much is" in query:
+            do_calculation(query)
+
+        elif "bluetooth on" in query or "turn on bluetooth" in query:
+            open_bluetooth_settings()
+
+        elif "bluetooth off" in query or "turn off bluetooth" in query:
+            close_settings()
+
+        elif "wifi on" in query or "turn on wifi" in query:
+            open_wifi_settings()
+
+        elif "wifi off" in query or "turn off wifi" in query:
+            close_settings()
+
+        elif query in ["hi", "hello", "hey"]:
+            speak("Hello! I’m here to assist you.")
+
+        elif "thank you" in query or "thanks" in query:
+            speak("You're welcome!")
+
+        elif "how r u" in query:
+            speak("I'm functioning optimally and ready to assist you!")
+
+        elif "who are you" in query:
+            speak("I am Jarvis, your personal assistant.")
+        elif "hu r u" in query:
+            speak("I am Jarvis, your AI assistant.")
+        elif "your name" in query:
+            speak("My name is Jarvis.")
+        elif "who made you" in query:
+            speak("I was created by Abhishek.")
+        elif "who created you" in query:
+            speak("Abhishek is my creator.")
+        elif "tell me about yourself" in query:
+            speak("I am Jarvis, your personal voice assistant powered by artificial intelligence.")
+        elif "what are you" in query:
+            speak("I am a voice-activated virtual assistant.")
+        elif "what can you do" in query:
+            speak("I can play music, search the web, take notes, tell jokes, and much more.")
+
+
+
+
+
+
+        elif "what's up" in query or "what are you doing" in query:
+            speak("Just waiting to help you with anything you need.")
+
+        elif "i love u" in query:
+            speak("Aww, thank you! I'm always here for you.")
+
+        elif "good night" in query or "bye" in query:
+            speak("Good night. Take care!")
+            break
+
+        elif "where is" in query:
+            location = query.replace("where is", "").strip()
+            speak(f"Let me show you where {location} is.")
+            webbrowser.open(f"https://www.google.com/maps/place/{location}")
+
+        elif "what can you do" in query:
+            speak("I can play songs, search the web, check system status, take notes, set alarms, and more.")
+
+        elif "exit" in query or "shutdown" in query or "finally sleep" in query:
+            speak("Shutting down. Goodbye.")
+            break
+
+        else:
+            speak("I'm not sure how to respond to that, but I'm learning every day.")
+
