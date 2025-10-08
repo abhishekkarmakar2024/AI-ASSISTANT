@@ -1,0 +1,33 @@
+<!-- login.html -->
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Login - Jarvis Chatbox</title>
+  <style>
+    body {
+      background: black; color: white; font-family: Arial; text-align: center;
+      display: flex; flex-direction: column; justify-content: center; height: 100vh;
+    }
+    input { padding: 10px; margin: 10px; width: 250px; }
+    button { padding: 10px 20px; background: #00ffff; border: none; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Jarvis Chatbox Login</h1>
+  <input type="text" id="username" placeholder="Username" />
+  <input type="password" id="password" placeholder="Password" />
+  <button onclick="login()">Login</button>
+
+  <script>
+    function login() {
+      const u = document.getElementById('username').value;
+      const p = document.getElementById('password').value;
+      if (u === 'Abhishek' && p === '2027') {
+        window.location.href = 'chatbox.html';
+      } else {
+        alert("Wrong credentials!");
+      }
+    }
+  </script>
+</body>
+</html>
