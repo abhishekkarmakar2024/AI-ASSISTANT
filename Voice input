@@ -1,0 +1,32 @@
+import speech_recognition as sr
+import time
+
+def wait_for_wake_word():
+    r = sr.Recognizer()
+    with sr.Microphone() as source:
+        r.adjust_for_ambient_noise(source)
+        print("🎙️ Waiting for wake word...")
+
+        wake_words = [
+            "wake up jarvis",
+            "hey jarvis",
+            "jarvis wake up",
+            "wake up jar"
+        ]
+
+        while True:
+            try:
+                audio = r.listen(source, timeout=5, phrase_time_limit=4)
+                query = r.recognize_google(audio).lower()
+                print(f"👂 Heard: {query}")
+
+                if any(wake_word in query for wake_word in wake_words):
+                    print("✅ Wake word detected!")
+                    return True
+            except sr.WaitTimeoutError:
+                continue
+            except sr.UnknownValueError:
+                continue
+            except sr.RequestError:
+                print("❌ Network issue with speech recognition.")
+                time.sleep(5)
